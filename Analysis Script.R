@@ -12,6 +12,8 @@
 ## 6)  Stepwise selection
 ## 7)  All possible
 ## 8)  Hypothesis testing
+##       a) Partial F_0 Test
+##       b) Plots
 ## 9)  Residuals
 ## 10) Cross validation
 
@@ -251,6 +253,8 @@ df[, c("least_60", "least_school", "least_rev", "least_as")] =
              as.numeric(df$least_developed) * df$rev_coups,
              as.numeric(df$least_developed) * df$assasinations)
 
+df[, "school_sq"] <- df$yearsschool^2
+
 
 # variables in each model
 full_var = c("rgdp60", "tradeshare", "yearsschool", "rev_coups", "assasinations", 
@@ -258,10 +262,19 @@ full_var = c("rgdp60", "tradeshare", "yearsschool", "rev_coups", "assasinations"
              "dev_rev", "dev_as", "least_60", "least_school", "least_rev", "least_as")
 
 
-model_a = c("rgdp60", "tradeshare", "yearsschool", "rev_coups", "assasinations", 
-              "development_status", "least_developed", "dev_60", "dev_school", 
-              "dev_rev", "dev_as", "least_60", "least_school", 
-              "least_rev", "least_as")
+model_a_var = c("rgdp60", "tradeshare", "yearsschool", "rev_coups", "development_status", 
+                "least_developed", "dev_60", "dev_school", "least_rev")
+
+
+model_b1_var = c("rgdp60", "tradeshare", "yearsschool", "rev_coups",
+                 "dev_rev", "dev_60", "school_sq")
+model_b2_var = c("rgdp60", "tradeshare", "yearsschool", "school_sq", "rev_coups",
+                 "least_developed", "dev_60")
+
+
+model_c1_var = c("rgdp60", "tradeshare", "yearsschool", "school_sq", "rev_coups")
+model_c2_var = c("rgdp60", "tradeshare", "rev_coups", "least_developed")
+model_c3_var = c("tradeshare", "yearsschool", "school_sq", "rev_coups", "least_developed")
 
 
 # From the initial model, the following models were tried
@@ -269,7 +282,22 @@ model_a = c("rgdp60", "tradeshare", "yearsschool", "rev_coups", "assasinations",
 initial_model = lm(str_c("growth", sep = " ~ ", str_c(full_var, collapse = " + ")), 
                    data = df)
 
-model_a = 
+model_a = lm(str_c("growth", sep = " ~ ", str_c(model_a_var, collapse = " + ")), 
+             data = df)
+
+
+model_b1 = lm(str_c("growth", sep = " ~ ", str_c(model_b1_var, collapse = " + ")), 
+              data = df)
+model_b2 = lm(str_c("growth", sep = " ~ ", str_c(model_b2_var, collapse = " + ")), 
+              data = df)
+
+
+model_c1 = lm(str_c("growth", sep = " ~ ", str_c(model_c1_var, collapse = " + ")), 
+              data = df)
+model_c2 = lm(str_c("growth", sep = " ~ ", str_c(model_c2_var, collapse = " + ")), 
+              data = df)
+model_c3 = lm(str_c("growth", sep = " ~ ", str_c(model_c3_var, collapse = " + ")), 
+              data = df)
 
 
 
@@ -280,12 +308,12 @@ model_a =
 # improve matrix conditioning by centering the design matrix, X
 center_df = sapply(df[, -1], function(x) x - mean(x)) %>% as.data.frame()
 
-centered_model = lm(str_c("growth", sep = " ~ ", str_c(full_var, collapse = " + ")), 
+centered_model = lm(str_c("growth", sep = " ~ ", str_c(model_c2_var, collapse = " + ")), 
                     data = center_df)
 
 # Variance decomposition proportions 
 # MVP PDF pg 325
-eigprop(initial_model)
+eigprop(centered_model)
 
 # Correlation matrix
 # MVP PDF pg 317
@@ -299,13 +327,14 @@ correlation_matrix <- function(data, model_var){
   MC
 }
 
-cor_mat = correlation_matrix(df, model_var)
+cor_mat = correlation_matrix(df, model_c2_var)
 
 ggcorrplot(cor_mat, hc.order = TRUE, outline.col = "white", type = "lower",
            ggtheme = ggplot2::theme_minimal,
            colors = c(wes_palette("AsteroidCity1", type = "discrete")[1],
                       "white", wes_palette("AsteroidCity1", type = "discrete")[3]),
-           title = "Correlation Matrix - Initial Model")
+           lab = TRUE,
+           title = "Correlation Matrix - Model C3")
            #lab = TRUE, lab_size = 2)  # adds correlation value on squares
 
 
@@ -317,14 +346,14 @@ ggcorrplot(cor_mat, hc.order = TRUE, outline.col = "white", type = "lower",
 # Model setup for the step() process
 # MVP PDF pg 376
 min_model = lm("growth ~ 1", data = df)
-max_model = lm(str_c("growth", sep = " ~ ", str_c(full_var, collapse = " + ")), 
+max_model = lm(str_c("growth", sep = " ~ ", str_c(model_b2_var, collapse = " + ")), 
                data = df)
 
 
 step(min_model, criteria = "AIC", direction = "forward", 
      scope = list(upper = max_model, lower = ~1)) %>% summary()
 
-step(initial_model, criteria = "AIC", direction = "backward") %>% summary()
+step(max_model, criteria = "AIC", direction = "backward") %>% summary()
 
 step(min_model, criteria = "AIC", direction = "both", 
      scope = list(upper = max_model, lower = ~1)) %>% summary()
@@ -336,14 +365,15 @@ step(min_model, criteria = "AIC", direction = "both",
 ## 7) All possible
 
 # MVP PDF pg 370
-all = initial_model %>% ols_step_all_possible(.)$result[, c("mindex", "n", "predictors", 
-                                                            "mse", "cp", "aic")]
+all = ols_step_all_possible(model_c3)$result[, c("mindex", "n", 
+                                                 "predictors", "rmse", 
+                                                 "cp", "aic")]
 
 all[, 4:6] <- apply(all[, 4:6], 2, function(x) round(x, digits = 2))
 
-all[order(all$rsquare, decreasing = FALSE), ]
-all[order(all$cp, decreasing = TRUE), ]
-all[order(all$rmse, decreasing = TRUE), ]
+all[order(all$rmse, decreasing = TRUE), ] %>% tail()
+all[order(all$cp, decreasing = TRUE), ] %>% tail()
+all[order(all$aic, decreasing = TRUE), ] %>% tail()
 
 
 
@@ -352,37 +382,96 @@ all[order(all$rmse, decreasing = TRUE), ]
 ## 8) Hypothesis testing
 
 # OLS by hand
-X = cbind(rep(1, nrow(df)), df[, model_var]) %>% 
-  `colnames<-`(NULL) %>% `rownames<-`(NULL) %>% as.matrix()
-
-y = df[, "growth"] %>% `colnames<-`(NULL) %>% `rownames<-`(NULL) %>% as.matrix()
-
-inv_Xsq = t(X) %*% X %>% solve()
-Xy = t(X) %*% y
-
-beta_hat = inv_Xsq %*% Xy
-
-
-# Analysis of Variance table elements by hand
-p = ncol(X) - 1
-n = nrow(X)
-
-SS_R = t(beta_hat) %*% Xy - (sum(y)^2 / n)
-SS_Res = t(y) %*% y - t(beta_hat) %*% Xy
-SS_T = t(y) %*% y - (sum(y)^2 / n)
-
-MS_R = SS_R/p
-MS_Res = SS_Res/(n - p - 1)
-
-F_0 = MS_R/MS_Res
-
+ols_matrices <- function(X_var, y_var, data){
+  X = cbind(rep(1, nrow(data)), data[, X_var]) %>% 
+    `colnames<-`(NULL) %>% `rownames<-`(NULL) %>% as.matrix()
+  
+  y = data[, y_var] %>% `colnames<-`(NULL) %>% `rownames<-`(NULL) %>% as.matrix()
+  
+  inv_Xsq = t(X) %*% X %>% solve()
+  Xy = t(X) %*% y
+  
+  beta_hat = inv_Xsq %*% Xy
+  
+  
+  # Analysis of Variance table elements by hand
+  p = ncol(X) - 1
+  n = nrow(X)
+  
+  SS_R = t(beta_hat) %*% Xy - (sum(y)^2 / n)
+  SS_Res = t(y) %*% y - t(beta_hat) %*% Xy
+  SS_T = t(y) %*% y - (sum(y)^2 / n)
+  
+  MS_R = SS_R/p
+  MS_Res = SS_Res/(n - p - 1)
+  
+  F_0 = MS_R/MS_Res
+  
+  result <- list(X, y, inv_Xsq, Xy, beta_hat, p, n, SS_R, SS_Res, SS_T, MS_R, MS_Res, F_0)
+  names(result) <- c("X", "y", "inv_Xsq", "Xy", "beta_hat", "p", "n", 
+                     "SS_R", "SS_Res", "SS_T", "MS_R", "MS_Res", "F_0")
+  
+  result
+}
 
 
 ##########################
 ##########################
-## 8a) Tables
+## 8a) Partial F_0 Test
+
+# H_0: beta_2 = 0 and H_1: beta_2 != 0
+# MVP PDF pg. 108
+partial_F_test <- function(X1_var, X2_var, y_var, data, alpha){
+  results_X1 <- ols_matrices(X1_var, y_var, df)
+  results_X2 <- ols_matrices(X2_var, y_var, df)
+  
+  # Check X’s are orthogonal
+  orthogonal <- t(results_X2$X[, -1]) %*% results_X1$X[, -1]
+  
+  # S_R(beta 2 given beta 1)
+  p = ncol(results_X1$X) + ncol(results_X2$X) - 2
+  r = ncol(results_X2$X) - 1
+  n = nrow(results_X1$X)
+  
+  S_R_beta   = ols_matrices(c(X1_var, X2_var), "growth", df)$SS_R
+  S_R_beta_1 = ols_matrices(X1_var, "growth", df)$SS_R
+  
+  SS_R_beta_2 = S_R_beta - S_R_beta_1
+  partial_F_0 = (SS_R_beta_2/r) / ols_matrices(c(X1_var, X2_var), "growth", df)$MS_R
+  
+  F_sig = qf(alpha, df1 = r, df2 = (n-p), lower.tail=FALSE)
+  
+  # Reject H_0 if F_0 > F_sig
+  rejection = partial_F_0 > F_sig
+  
+  
+  result <- list(orthogonal, p, r, n, S_R_beta, S_R_beta_1, SS_R_beta_2, 
+                 partial_F_0, F_sig, rejection)
+  names(result) <- c("orthogonal", "p", "r", "n", "SS_R (beta)", "SS_R (beta_1)", 
+                     "SS_R (beta_2 given beta_1)", "F_0", "F_sig", "Reject Null?")
+  
+  result
+}
 
 
+# Model B2
+partial_F_test(model_b2_var[c(1, 3:7)], model_b2_var[c(2)], "growth", df, 0.05)
+partial_F_test(model_b2_var[c(1:3, 5:7)], model_b2_var[c(4)], "growth", df, 0.05)
+partial_F_test(model_b2_var[c(1:6)], model_b2_var[c(7)], "growth", df, 0.05)
+
+# Model C1
+partial_F_test(model_c1_var[c(1, 3:5)], model_c1_var[2], "growth", df, 0.05)
+partial_F_test(model_c1_var[c(2:5)], model_c1_var[c(1)], "growth", df, 0.05)
+partial_F_test(model_c1_var[c(1:2, 5)], model_c1_var[c(3:4)], "growth", df, 0.05)
+
+partial_F_test(model_c1_var[c(2, 5)], model_c1_var[c(1, 3:4)], "growth", df, 0.05)
+
+# Model C2
+partial_F_test(model_c2_var[c(2:4)], model_c2_var[1], "growth", df, 0.05)
+partial_F_test(model_c2_var[c(1:2, 4)], model_c2_var[c(3)], "growth", df, 0.05)
+
+# Model C3
+partial_F_test(model_c3_var[c(1:2, 4:5)], model_c3_var[c(3)], "growth", df, 0.05)
 
 
 
@@ -390,92 +479,103 @@ F_0 = MS_R/MS_Res
 ####################################################################
 ## 9) Residuals
 
-# OLS by hand
-X = cbind(rep(1, nrow(df)), df[, model_var]) %>% 
-    `colnames<-`(NULL) %>% `rownames<-`(NULL) %>% as.matrix()
+plot_residuals <- function(X_var, y_var, data){
+  fit <- ols_matrices(X_var, y_var, data)
+  
+  # Hat box
+  H = fit$X %*% fit$inv_Xsq %*% t(fit$X) %>% as.matrix()
+  h_ii = diag(H)
+  
+  
+  # External studentized residuals
+  y_hat = fit$X %*% fit$beta_hat
+  e = fit$y - y_hat
+  
+  numerator = ( (fit$n - fit$p) * as.vector(fit$MS_Res) ) - ( as.vector(fit$MS_Res)^2/(1 - h_ii) )
+  S = numerator/(fit$n - fit$p - 1)
+  
+  t = e/( S * (1 - h_ii) )
+  
+  
+  # Studentized residuals
+  # MVP PDF pg. 153
+  r = e/sqrt(as.vector(fit$MS_Res) * (1 - h_ii))
+  
+  
+  # Normal residual plot
+  # MVP PDF pg. 158
+  i = seq(1, fit$n, by = 1)
+  P = (i - 0.5)/fit$n
+  
+  norm_plot = data.frame("r" = sort(r), "P" = P)
+  
+  
+  # Residual Plot vs Predicted y_hat
+  # MVP PDF pg. 161
+  pred_plot = data.frame("t_i" = t, "y_hat" = y_hat, "r" = r)
+  
+  
+  # PRESS
+  press = (e/(1 - h_ii))^2 %>% sum()
+  R_pred = 1 - (press/fit$SS_T)
+  
+  
+  result <- list(norm_plot, pred_plot, press, R_pred)
+  names(result) <- c("norm_plot", "pred_plot", "PRESS", "R_pred")
+  result
+}
 
-y = df[, "growth"] %>% `colnames<-`(NULL) %>% `rownames<-`(NULL) %>% as.matrix()
 
-inv_Xsq = t(X) %*% X %>% solve()
-Xy = t(X) %*% y
-
-beta_hat = inv_Xsq %*% Xy
+no_malta <- df[-35, ]
 
 
-# Analysis of Variance table elements by hand
-p = ncol(X) - 1
-n = nrow(X)
-
-SS_R = t(beta_hat) %*% Xy - (sum(y)^2 / n)
-SS_Res = t(y) %*% y - t(beta_hat) %*% Xy
-SS_T = t(y) %*% y - (sum(y)^2 / n)
-
-MS_R = SS_R/p
-MS_Res = SS_Res/(n - p - 1)
-
-F_0 = MS_R/MS_Res
-
-
-# Hat box
-H = X %*% inv_Xsq %*% t(X) %>% as.matrix()
-h_ii = diag(H)
-
-
-# External studentized residuals
-y_hat = X %*% beta_hat
-e = y - y_hat
-
-numerator = ( (n - p) * as.vector(MS_Res) ) - ( as.vector(MS_Res)^2/(1 - h_ii) )
-S_i = numerator/(n - p - 1)
-
-t_i = e/( S_i * (1 - h_ii) )
-
-
-# Studentized residuals
-# MVP PDF pg. 153
-r = e/sqrt(as.vector(MS_Res) * (1 - h_ii))
+norm       <- plot_residuals(model_c1_var, "growth", no_malta)$norm_plot
+prediction <- plot_residuals(model_c1_var, "growth", no_malta)$pred_plot
 
 
 # Normal residual plot
 # MVP PDF pg. 158
-i = seq(1, n, by = 1)
-P = (i - 0.5)/n
-
-norm_plot = data.frame("r" = sort(r), "P" = P)
-line = lm("P ~ t", data = norm_plot) %>% summary() %>% .$coefficients %>% .[, "Estimate"]
+line = lm("P ~ r", data = norm) %>% summary() %>% .$coefficients %>% .[, "Estimate"]
 
 ggplot(norm_plot, aes(x = r, y = P)) + theme_minimal() +
   geom_point() +
   geom_abline(intercept = line[1], slope = line[2], color = "blue") +
   scale_fill_discrete(name ="Modeling Method") +
-  labs(title = "Normal Residual Plot - With Region", 
-       x = "Standardized Residuals t_i", y = "Cumulative Probability P_i",
+  labs(title = "Normal Residual Plot - Model B2", 
+       x = "Standardized Residuals", y = "Cumulative Probability",
        caption = "")
 
 
 # Residual Plot vs Predicted y_hat
 # MVP PDF pg. 161
-pred_plot = data.frame("t_i" = t_i, "y_hat" = y_hat)
-
-ggplot(pred_plot, aes(x = y_hat, y = t_i)) + theme_minimal() +
+ggplot(prediction, aes(x = y_hat, y = t_i)) + theme_minimal() +
   geom_point() +
   geom_hline(aes(yintercept = mean(r)), color = "blue") +
   scale_fill_discrete(name ="Modeling Method") +
-  labs(title = "Prediction Residual Plot", 
-       x = "Predictions y_hat", y = "External Standardized Residuals t_i",
+  labs(title = "Prediction Residual Plot - Model B2", 
+       x = "Predictions", y = "External Standardized Residuals",
        caption = "")
 
 
 
 ####################################################################
 ####################################################################
-## 10) Stepwise selection
+## 10) Cross Validation
 
 # variance inflation factor (VIF)
 # Rank severity of multicollinarity by excess of VIF >= 5 or >= 10
 # MVP PDF pg. 407
-vif(initial_model) %>% .[. >= 5 & . < 10]
-vif(initial_model) %>% .[. >= 10]
+vif(model_b2) %>% .[. >= 5 & . < 10]
+vif(model_b2) %>% .[. >= 10]
+
+vif(model_c1) %>% .[. >= 5 & . < 10]
+vif(model_c1) %>% .[. >= 10]
+
+vif(model_c2) %>% .[. >= 5 & . < 10]
+vif(model_c2) %>% .[. >= 10]
+
+vif(model_c3) %>% .[. >= 5 & . < 10]
+vif(model_c3) %>% .[. >= 10]
 
 
 # function to calculate cross validation results
@@ -530,11 +630,48 @@ cross_val <- function(data, y, model_var, num_remove, replicate){
 }
 
 
+# Model B2
+plot_residuals(model_b2_var, "growth", df)$PRESS
+plot_residuals(model_b2_var, "growth", df)$R_pred
+
+#b2_cross = cross_val(df, "growth", model_b2_var, 25, 50)
+apply(b2_cross, 2, mean)
+apply(b2_cross, 2, sd)
+
+ols_matrices(model_b2_var, "growth", df)$MS_Res
 
 
+# Model C1
+plot_residuals(model_c1_var, "growth", df)$PRESS
+plot_residuals(model_c1_var, "growth", df)$R_pred
+
+#c1_cross = cross_val(df, "growth", model_c1_var, 25, 50)
+apply(c1_cross, 2, mean)
+apply(c1_cross, 2, sd)
+
+ols_matrices(model_c1_var, "growth", df)$MS_Res
 
 
+# Model C2
+plot_residuals(model_c2_var, "growth", df)$PRESS
+plot_residuals(model_c2_var, "growth", df)$R_pred
 
+#c2_cross = cross_val(df, "growth", model_c2_var, 25, 50)
+apply(c2_cross, 2, mean)
+apply(c2_cross, 2, sd)
+
+ols_matrices(model_c2_var, "growth", df)$MS_Res
+
+
+# Model C3
+plot_residuals(model_c3_var, "growth", df)$PRESS
+plot_residuals(model_c3_var, "growth", df)$R_pred
+
+#c3_cross = cross_val(df, "growth", model_c3_var, 25, 50)
+apply(c3_cross, 2, mean)
+apply(c3_cross, 2, sd)
+
+ols_matrices(model_c3_var, "growth", df)$MS_Res
 
 
 
