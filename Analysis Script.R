@@ -561,7 +561,7 @@ ggplot(prediction, aes(x = y_hat, y = t_i)) + theme_minimal() +
 ####################################################################
 ####################################################################
 ## 10) Cross Validation
-
+ 
 # variance inflation factor (VIF)
 # Rank severity of multicollinarity by excess of VIF >= 5 or >= 10
 # MVP PDF pg. 407
